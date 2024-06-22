@@ -619,7 +619,7 @@ impl<R> Reader<R> {
     /// let mut buf = Vec::new();
     ///
     /// fn into_line_and_column(reader: Reader<Cursor<&[u8]>>) -> (usize, usize) {
-    ///     let end_pos = reader.buffer_position();
+    ///     let end_pos = usize::try_from(reader.buffer_position()).unwrap();
     ///     let mut cursor = reader.into_inner();
     ///     let s = String::from_utf8(cursor.into_inner()[0..end_pos].to_owned())
     ///         .expect("can't make a string");
