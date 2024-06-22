@@ -9,7 +9,7 @@ use crate::errors::{Error, Result};
 use crate::events::Event;
 use crate::name::QName;
 use crate::reader::{BangType, Parser, ReadTextResult, Reader, Span, XmlSource};
-use crate::utils::is_whitespace;
+use crate::utils::{is_whitespace, to_u64};
 
 macro_rules! impl_buffered_source {
     ($($lf:lifetime, $reader:tt, $async:ident, $await:ident)?) => {
@@ -53,7 +53,7 @@ macro_rules! impl_buffered_source {
         $($async)? fn read_text $(<$lf>)? (
             &mut self,
             buf: &'b mut Vec<u8>,
-            position: &mut usize,
+            position: &mut u64,
         ) -> ReadTextResult<'b, &'b mut Vec<u8>> {
             let mut read = 0;
             let start = buf.len();
@@ -79,7 +79,7 @@ macro_rules! impl_buffered_source {
 
                         let used = i + 1;
                         self $(.$reader)? .consume(used);
-                        read += used;
+                        read += to_u64(used);
 
                         *position += read;
                         return ReadTextResult::UpToMarkup(&buf[start..]);
@@ -89,7 +89,7 @@ macro_rules! impl_buffered_source {
 
                         let used = available.len();
                         self $(.$reader)? .consume(used);
-                        read += used;
+                        read += to_u64(used);
                     }
                 }
             }
@@ -103,7 +103,7 @@ macro_rules! impl_buffered_source {
             &mut self,
             byte: u8,
             buf: &'b mut Vec<u8>,
-            position: &mut usize,
+            position: &mut u64,
         ) -> io::Result<(&'b [u8], bool)> {
             // search byte must be within the ascii range
             debug_assert!(byte.is_ascii());
@@ -127,7 +127,7 @@ macro_rules! impl_buffered_source {
 
                         let used = i + 1;
                         self $(.$reader)? .consume(used);
-                        read += used;
+                        read += to_u64(used);
 
                         *position += read;
                         return Ok((&buf[start..], true));
@@ -137,7 +137,7 @@ macro_rules! impl_buffered_source {
 
                         let used = available.len();
                         self $(.$reader)? .consume(used);
-                        read += used;
+                        read += to_u64(used);
                     }
                 }
             }
@@ -151,7 +151,7 @@ macro_rules! impl_buffered_source {
             &mut self,
             mut parser: P,
             buf: &'b mut Vec<u8>,
-            position: &mut usize,
+            position: &mut u64,
         ) -> Result<&'b [u8]> {
             let mut read = 0;
             let start = buf.len();
@@ -171,7 +171,7 @@ macro_rules! impl_buffered_source {
 
                     // +1 for `>` which we do not include
                     self $(.$reader)? .consume(i + 1);
-                    read += i + 1;
+                    read += to_u64(i) + 1;
 
                     *position += read;
                     return Ok(&buf[start..]);
@@ -182,7 +182,7 @@ macro_rules! impl_buffered_source {
 
                 let used = available.len();
                 self $(.$reader)? .consume(used);
-                read += used;
+                read += to_u64(used);
             }
 
             *position += read;
@@ -193,7 +193,7 @@ macro_rules! impl_buffered_source {
         $($async)? fn read_bang_element $(<$lf>)? (
             &mut self,
             buf: &'b mut Vec<u8>,
-            position: &mut usize,
+            position: &mut u64,
         ) -> Result<(BangType, &'b [u8])> {
             // Peeked one bang ('!') before being called, so it's guaranteed to
             // start with it.
@@ -218,7 +218,7 @@ macro_rules! impl_buffered_source {
                             self $(.$reader)? .consume(used);
                             read += used;
 
-                            *position += read;
+                            *position += to_u64(read);
                             return Ok((bang_type, &buf[start..]));
                         } else {
                             buf.extend_from_slice(available);
@@ -230,25 +230,25 @@ macro_rules! impl_buffered_source {
                     }
                     Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
                     Err(e) => {
-                        *position += read;
+                        *position += to_u64(read);
                         return Err(Error::Io(e.into()));
                     }
                 }
             }
 
-            *position += read;
+            *position += to_u64(read);
             Err(bang_type.to_err())
         }
 
         #[inline]
-        $($async)? fn skip_whitespace(&mut self, position: &mut usize) -> io::Result<()> {
+        $($async)? fn skip_whitespace(&mut self, position: &mut u64) -> io::Result<()> {
             loop {
                 break match self $(.$reader)? .fill_buf() $(.$await)? {
                     Ok(n) => {
                         let count = n.iter().position(|b| !is_whitespace(*b)).unwrap_or(n.len());
                         if count > 0 {
                             self $(.$reader)? .consume(count);
-                            *position += count;
+                            *position += to_u64(count);
                             continue;
                         } else {
                             Ok(())

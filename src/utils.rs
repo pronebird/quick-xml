@@ -256,6 +256,11 @@ pub const fn trim_xml_end(mut bytes: &[u8]) -> &[u8] {
     bytes
 }
 
+#[inline]
+pub(crate) fn to_u64(value: usize) -> u64 {
+    u64::try_from(value).expect("failed to convert usize to u64")
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(test)]

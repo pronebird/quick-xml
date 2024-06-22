@@ -14,7 +14,7 @@ use crate::errors::{Error, Result};
 use crate::events::Event;
 use crate::name::QName;
 use crate::reader::{BangType, Parser, ReadTextResult, Reader, Span, XmlSource};
-use crate::utils::is_whitespace;
+use crate::utils::{is_whitespace, to_u64};
 
 /// This is an implementation for reading from a `&[u8]` as underlying byte stream.
 /// This implementation supports not using an intermediate buffer as the byte slice
@@ -228,8 +228,9 @@ impl<'a> Reader<&'a [u8]> {
         // self.reader will be changed, so store original reference
         let buffer = self.reader;
         let span = self.read_to_end(end)?;
+        let len = usize::try_from(span.end - span.start).expect("failed to convert usize to u64");
 
-        self.decoder().decode(&buffer[0..span.len()])
+        self.decoder().decode(&buffer[0..len])
     }
 }
 
@@ -258,7 +259,7 @@ impl<'a> XmlSource<'a, ()> for &'a [u8] {
     }
 
     #[inline]
-    fn read_text(&mut self, _buf: (), position: &mut usize) -> ReadTextResult<'a, ()> {
+    fn read_text(&mut self, _buf: (), position: &mut u64) -> ReadTextResult<'a, ()> {
         match memchr::memchr(b'<', self) {
             Some(0) => {
                 *position += 1;
@@ -266,13 +267,13 @@ impl<'a> XmlSource<'a, ()> for &'a [u8] {
                 ReadTextResult::Markup(())
             }
             Some(i) => {
-                *position += i + 1;
+                *position += to_u64(i) + 1;
                 let bytes = &self[..i];
                 *self = &self[i + 1..];
                 ReadTextResult::UpToMarkup(bytes)
             }
             None => {
-                *position += self.len();
+                *position += to_u64(self.len());
                 let bytes = &self[..];
                 *self = &[];
                 ReadTextResult::UpToEof(bytes)
@@ -285,18 +286,18 @@ impl<'a> XmlSource<'a, ()> for &'a [u8] {
         &mut self,
         byte: u8,
         _buf: (),
-        position: &mut usize,
+        position: &mut u64,
     ) -> io::Result<(&'a [u8], bool)> {
         // search byte must be within the ascii range
         debug_assert!(byte.is_ascii());
 
         if let Some(i) = memchr::memchr(byte, self) {
-            *position += i + 1;
+            *position += to_u64(i) + 1;
             let bytes = &self[..i];
             *self = &self[i + 1..];
             Ok((bytes, true))
         } else {
-            *position += self.len();
+            *position += to_u64(self.len());
             let bytes = &self[..];
             *self = &[];
             Ok((bytes, false))
@@ -304,28 +305,24 @@ impl<'a> XmlSource<'a, ()> for &'a [u8] {
     }
 
     #[inline]
-    fn read_with<P>(&mut self, mut parser: P, _buf: (), position: &mut usize) -> Result<&'a [u8]>
+    fn read_with<P>(&mut self, mut parser: P, _buf: (), position: &mut u64) -> Result<&'a [u8]>
     where
         P: Parser,
     {
         if let Some(i) = parser.feed(self) {
             // +1 for `>` which we do not include
-            *position += i + 1;
+            *position += to_u64(i) + 1;
             let bytes = &self[..i];
             *self = &self[i + 1..];
             return Ok(bytes);
         }
 
-        *position += self.len();
+        *position += to_u64(self.len());
         Err(Error::Syntax(P::eof_error()))
     }
 
     #[inline]
-    fn read_bang_element(
-        &mut self,
-        _buf: (),
-        position: &mut usize,
-    ) -> Result<(BangType, &'a [u8])> {
+    fn read_bang_element(&mut self, _buf: (), position: &mut u64) -> Result<(BangType, &'a [u8])> {
         // Peeked one bang ('!') before being called, so it's guaranteed to
         // start with it.
         debug_assert_eq!(self[0], b'!');
@@ -333,22 +330,22 @@ impl<'a> XmlSource<'a, ()> for &'a [u8] {
         let bang_type = BangType::new(self[1..].first().copied())?;
 
         if let Some((bytes, i)) = bang_type.parse(&[], self) {
-            *position += i;
+            *position += to_u64(i);
             *self = &self[i..];
             return Ok((bang_type, bytes));
         }
 
-        *position += self.len();
+        *position += to_u64(self.len());
         Err(bang_type.to_err())
     }
 
     #[inline]
-    fn skip_whitespace(&mut self, position: &mut usize) -> io::Result<()> {
+    fn skip_whitespace(&mut self, position: &mut u64) -> io::Result<()> {
         let whitespaces = self
             .iter()
             .position(|b| !is_whitespace(*b))
             .unwrap_or(self.len());
-        *position += whitespaces;
+        *position += to_u64(whitespaces);
         *self = &self[whitespaces..];
         Ok(())
     }
